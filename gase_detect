@@ -1,0 +1,66 @@
+import streamlit as st
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+
+class ObjectDetector:
+    def __init__(self, model_path):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = self._load_model(model_path)
+        self.model.to(self.device)
+        self.model.eval()
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+    def _load_model(self, model_path):
+        model = torch.load(model_path, map_location=self.device)
+        if isinstance(model, torch.nn.DataParallel):
+            model = model.module
+        return model
+
+    def detect(self, image):
+        image_tensor = self.transform(image).to(self.device)
+        outputs = self.model([image_tensor])
+        boxes = outputs[0]['boxes'].detach().cpu().numpy()
+        scores = outputs[0]['scores'].detach().cpu().numpy()
+        labels = outputs[0]['labels'].detach().cpu().numpy()
+        return boxes, scores, labels
+
+
+def main():
+    st.set_page_config(page_title="Object Detection App", page_icon=":guardsman:", layout="wide")
+    st.markdown("<h1 style='text-align: center;'>Object Detection App</h1>", unsafe_allow_html=True)
+
+    # Create a menu with multiple pages
+    menu = ["Home", "About"]
+    choice = st.sidebar.selectbox("Select a page", menu)
+
+    if choice == "Home":
+        st.write("<p style='text-align: center; font-style: italic;'>Upload an image to detect objects.</p>", unsafe_allow_html=True)
+        st.write("Please upload an image:")
+        image_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
+
+        if image_file is not None:
+            image = Image.open(image_file)
+            st.image(image, caption="Uploaded image", use_column_width=True)
+
+            # Object detection
+            detector = ObjectDetector('model.pt')
+            boxes, scores, labels = detector.detect(image)
+            for box, score, label in zip(boxes, scores, labels):
+                if score > 0.5:
+                    x1, y1, x2, y2 = box.astype(int)
+                    image = image.copy()
+                    draw = ImageDraw.Draw(image)
+                    draw.rectangle([(x1, y1), (x2, y2)], outline='red', width=3)
+                    st.image(image, caption=f"Detected {label}", use_column_width=True)
+
+    elif choice == "About":
+        st.write("This app uses a PyTorch Faster R-CNN model for object detection.")
+
+
+if __name__ == '__main__':
+    main()
